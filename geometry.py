@@ -53,61 +53,80 @@ class Geometry:
         
         self.cos_horz = (1.+self.altitude/self.Moon_radius_km)**(-1)
         
-        '''Get random interaction points'''
         
-        self.cos_th_M = np.random.uniform(self.cos_horz, 1., self.num_events)
-        self.sin_th_M = np.sqrt(1.-self.cos_th_M**2)
+        '''
+        # NEW CODE HERE
+        1. Generate events: theta_M, theta_CR, phi_CR
+        2. Propagate Particle
+        3. Propagate radio path
+        '''
         
-        ''' The entry point of the cosmic ray in Cartesian coordinates '''
-        self.r_M = np.zeros((3, self.num_events))
-        self.r_M[0,:] = self.sin_th_M 
-        self.r_M[2,:] = self.cos_th_M 
+        self.generate_events()
+        
+        #'''Get random interaction points'''
+        #
+        #self.cos_th_M = np.random.uniform(self.cos_horz, 1., self.num_events)
+        #self.sin_th_M = np.sqrt(1.-self.cos_th_M**2)
+        
+        #''' The entry point of the cosmic ray in Cartesian coordinates '''
+        #self.r_M = np.zeros((3, self.num_events))
+        #self.r_M[0,:] = self.sin_th_M 
+        #self.r_M[2,:] = self.cos_th_M 
 
         
-        '''
-        Get random directions.
-        Note, we sample the cosmic ray zenith angle in cos^2 (not cos) to 
-        take the dot product in the integral into account. This angle is 
-        defined in a coordinate system with the z-axis along the normal to 
-        the surface of the Moon.
-        '''
-        self.cos_th_CR = np.sqrt(np.random.uniform(0., 1., self.num_events))
-        self.phi_CR    = np.random.uniform(0., 2.*np.pi, self.num_events)
+        #'''
+        #Get random directions.
+        #Note, we sample the cosmic ray zenith angle in cos^2 (not cos) to 
+        #take the dot product in the integral into account. This angle is 
+        #defined in a coordinate system with the z-axis along the normal to 
+        #the surface of the Moon.
+        #'''
+        #self.cos_th_CR = np.sqrt(np.random.uniform(0., 1., self.num_events))
+        #self.phi_CR    = np.random.uniform(0., 2.*np.pi, self.num_events)
 
-        '''
-        This is the direction unit vector of the particle  in a coordinate 
-        system with the z-axis defined along the direction of the normal to 
-        the Moon. 
-        '''
-        k_x = np.sqrt(1.-self.cos_th_CR**2) * np.cos(self.phi_CR)
-        k_y = np.sqrt(1.-self.cos_th_CR**2) * np.sin(self.phi_CR)
-        k_z = self.cos_th_CR
+        #'''
+        #This is the direction unit vector of the particle  in a coordinate 
+        #system with the z-axis defined along the direction of the normal to 
+        #the Moon. 
+        #'''
+        #k_x = np.sqrt(1.-self.cos_th_CR**2) * np.cos(self.phi_CR)
+        #k_y = np.sqrt(1.-self.cos_th_CR**2) * np.sin(self.phi_CR)
+        #k_z = self.cos_th_CR
         
-        '''
-        This is the direction unit vector in the coordinate system of the 
-        spacecraft (S/C is in the z-axis of the Moon)
-        '''
-        self.r_CR = np.zeros((3, self.num_events))
-        self.r_CR[0,:] = +k_x*self.cos_th_M + k_z*self.sin_th_M
-        self.r_CR[1,:] =  k_y
-        self.r_CR[2,:] = -k_x*self.sin_th_M + k_z*self.cos_th_M
+        #'''
+        #This is the direction unit vector in the coordinate system of the 
+        #spacecraft (S/C is in the z-axis of the Moon)
+        #'''
+        #self.r_CR = np.zeros((3, self.num_events))
+        #self.r_CR[0,:] = +k_x*self.cos_th_M + k_z*self.sin_th_M
+        #self.r_CR[1,:] =  k_y
+        #self.r_CR[2,:] = -k_x*self.sin_th_M + k_z*self.cos_th_M
         
+        self.propagate_particle()
+
+        #'''
+        #Calculate the zenith angle of the event w.r.t. the normal to the surface 
+        #'''
+        ##self.cos_theta_zen =  self.r_CR[0,:]*self.r_M[0,:] \
+        ##                    + self.r_CR[1,:]*self.r_M[1,:] \
+        ##                    + self.r_CR[2,:]*self.r_M[2,:] 
+              
         '''
-        Calculate the zenith angle of the event w.r.t. the normal to the surface 
+        > Particle interaction model
+        This is a model of Xmax for given energies. 
+        It was a by-eye estimate of a plot with various data points.
+        Will want a citeable model with Xmax and sigma-Xmax.
+        This simple model will have to do for now. 
         '''
-        #self.cos_theta_zen =  self.r_CR[0,:]*self.r_M[0,:] \
-        #                    + self.r_CR[1,:]*self.r_M[1,:] \
-        #                    + self.r_CR[2,:]*self.r_M[2,:] 
-                            
+        
         self.proton_log10_energy_list = np.array([14.,   15.,   16.,   17.,   18.,   19.,   20.,   21.01])
         self.proton_Xmax_list         = np.array([500., 580.,  640.,  690.,  760.,  800.,  845.,  880.]) # in g/cm^2
         self.get_proton_Xmax          = Akima1DInterpolator(self.proton_log10_energy_list, self.proton_Xmax_list)
 
-        self.shower_lam = self.get_proton_Xmax(self.proton_log10_energy) / self.density_reg * 1.e-5 # in km
+        #self.shower_lam = self.get_proton_Xmax(self.proton_log10_energy) / self.density_reg * 1.e-5 # in km
+        #self.shower_pos = self.Moon_radius_km * self.r_M - self.shower_lam * self.r_CR
 
-
-        self.shower_pos = self.Moon_radius_km * self.r_M - self.shower_lam * self.r_CR
-        
+        self.propagate_radio()
         #for k in range(0,self.num_events):
         self.R_SC = np.array([0., 0., self.Moon_radius_km + self.altitude])
         e1 = self.R_SC/np.sqrt(np.dot(self.R_SC,self.R_SC))
@@ -295,3 +314,76 @@ class Geometry:
         self.pol_vec_ref = self.e_para * self.u_pol_vec_para_ref + self.e_perp * self.u_pol_vec_perp_ref
         self.pol_vec_ref /= np.sqrt(np.einsum('ij,ij->j', self.pol_vec_ref, self.pol_vec_ref))
         
+        
+    ###########################################################################
+    ###########################################################################
+    ###########################################################################
+
+    def generate_events(self):
+        '''
+        > Get random interaction points
+        Use rotational symmetry to only generate impact points in lunar latitude angle.
+        Azimuth gets randomized and not necessary for the calculations here
+        '''
+        self.th_M = np.arccos(np.random.uniform(self.cos_horz, 1., self.num_events))      
+        '''
+        > Get random directions.
+        Note, we sample the cosmic ray zenith angle in cos^2 (not cos) to 
+        take the dot product in the integral into account. This angle is 
+        defined in a coordinate system with the z-axis along the normal to 
+        the surface of the Moon.
+        '''
+        self.th_CR     = np.arccos(np.sqrt(np.random.uniform(0., 1., self.num_events)))
+        self.phi_CR    = np.random.uniform(0., 2.*np.pi, self.num_events)
+
+    ###########################################################################
+    ###########################################################################
+    ###########################################################################
+
+    def propagate_particle(self):
+        ''' 
+        > CR entry point geometry
+        Calculate the sine and cosine of the lunar latitude angle of CR entry
+        Then get the CR entry point in Cartesian coordinates
+        '''
+        self.cos_th_M = np.cos(self.th_M)
+        self.sin_th_M = np.sqrt(1.-self.cos_th_M**2)
+        
+        self.r_M = np.zeros((3, self.num_events))
+        self.r_M[0,:] = self.sin_th_M 
+        self.r_M[2,:] = self.cos_th_M 
+        
+        '''
+        > CR direction unit vector in local coordinate system
+        This is the direction unit vector of the particle  in a coordinate 
+        system with the z-axis defined along the direction of the normal to 
+        the Moon. 
+        '''
+        self.cos_th_CR = np.cos(self.th_CR)
+        k_x = np.sqrt(1.-self.cos_th_CR**2) * np.cos(self.phi_CR)
+        k_y = np.sqrt(1.-self.cos_th_CR**2) * np.sin(self.phi_CR)
+        k_z = self.cos_th_CR
+        
+        '''
+        > CR direction unit vector in global coordinate system
+        This is the direction unit vector in the coordinate system of the 
+        spacecraft (S/C is in the z-axis of the Moon)
+        '''
+        self.r_CR = np.zeros((3, self.num_events))
+        self.r_CR[0,:] = +k_x*self.cos_th_M + k_z*self.sin_th_M
+        self.r_CR[1,:] =  k_y
+        self.r_CR[2,:] = -k_x*self.sin_th_M + k_z*self.cos_th_M
+        
+        '''
+        > Get proton Xmax coordinates
+        The shower Xmax is propagated to get shower position coordinates (shower_pos)
+        '''
+        self.shower_lam = self.get_proton_Xmax(self.proton_log10_energy) / self.density_reg * 1.e-5 # in km
+        self.shower_pos = self.Moon_radius_km * self.r_M - self.shower_lam * self.r_CR
+
+    ###########################################################################
+    ###########################################################################
+    ###########################################################################
+
+    def propagate_radio(self):
+        return 0.
