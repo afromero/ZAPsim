@@ -28,7 +28,8 @@ class Detector:
                  T_amp = 500., ZL = 50.,
                  FE_type = 0, # 0 = transformer, 1 = resistive FET. 
                  impedance_ratio = 1., # for transformers these are typically square integer ratios
-                 amp_noise_voltage = 1.2e-9, # V/sqrt(Hz) for FETs 
+                 amp_noise_voltage = 1.2e-9, # V/sqrt(Hz) for FETs
+                 N_ant_array = 1., # Number of antennas per polarization. Assume linear dipole array.
                  Nfrq=100, th_inc_cut_deg = 38.):
         '''
         Constants
@@ -52,6 +53,7 @@ class Detector:
         self.ZL      = ZL
         self.Nfrq    = Nfrq
         self.impedance_ratio = impedance_ratio
+        self.N_ant_array = N_ant_array
 
         '''
         Initialize frequency array
@@ -81,7 +83,7 @@ class Detector:
         self.energy_MeV = self.E_eV*1.e-6
         
         B_gal, self.T_gal = galactic_temperature(self.freq)
-        #print T_gal.shape
+        #print(T_gal.shape)
         
         '''
         Amplifier noise contribution in V^2/MHz
@@ -106,12 +108,15 @@ class Detector:
             h_ant_string = h_ant_string.replace('.','p')
 
         fnm = 'dipole_data_%s.txt'%h_ant_string
-        print 'dipole file name:', fnm
-        for line in file(fnm):
+        print('dipole file name:', fnm)
+        #for line in file(fnm):
+        f_dipole = open(fnm, "r")
+        for line in f_dipole:
             f_ant.append(float(line.split()[0]))
             R_ant.append(float(line.split()[1]))
             X_ant.append(float(line.split()[2]))
             maxD_ant.append(float(line.split()[3]))
+        f_dipole.close()
         
         iRa = interp1d(f_ant, R_ant)    
         iXa = interp1d(f_ant, X_ant)    
@@ -129,21 +134,21 @@ class Detector:
         self.V_div_fac = np.abs(self.ZL)**2/np.abs(self.ZL + self.R_ant + 1j*self.X_ant)**2
         if FE_type == 0:
             if np.abs(self.ZL-50.)>0.1 : 
-                print '!!!! WARNING !!!!'
-                print 'Using a transformer with a non-50 Ohm amplifier is unusual'
-                print 'You have been warned.'
-                print '!!!! WARNING !!!!'
-            print 'Calculating transformed impedance'
+                print('!!!! WARNING !!!!')
+                print('Using a transformer with a non-50 Ohm amplifier is unusual')
+                print('You have been warned.')
+                print('!!!! WARNING !!!!')
+            print('Calculating transformed impedance')
             ZL_tran = self.ZL * self.impedance_ratio
             self.V_div_fac = np.abs(ZL_tran)**2/np.abs(ZL_tran + self.R_ant + 1j*self.X_ant)**2
             
-        self.h_eff     = np.sqrt(4.* self.V_div_fac * self.R_ant/self.Z0 * self.lam_array**2/4./np.pi)
+        self.h_eff     = self.N_ant_array * np.sqrt(4.* self.V_div_fac * self.R_ant/self.Z0 * self.lam_array**2/4./np.pi)
         
         '''
         Galactic noise spectrum in V^2/MHz
         '''
         self.V_gal_sq_spec = self.V_div_fac * 4. * self.R_ant * (self.kB*1.e6) * self.T_gal #*df
-        self.V_rms         = np.sqrt(np.sum(self.V_gal_sq_spec + self.V_amp_sq) * self.df)
+        self.V_rms         = np.sqrt(self.N_ant_array * np.sum(self.V_gal_sq_spec + self.V_amp_sq) * self.df)
 
         '''
         Effective height unit vectors

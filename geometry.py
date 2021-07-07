@@ -102,7 +102,6 @@ class Geometry:
         #self.r_CR[1,:] =  k_y
         #self.r_CR[2,:] = -k_x*self.sin_th_M + k_z*self.cos_th_M
         
-        self.propagate_particle()
 
         #'''
         #Calculate the zenith angle of the event w.r.t. the normal to the surface 
@@ -126,6 +125,8 @@ class Geometry:
         #self.shower_lam = self.get_proton_Xmax(self.proton_log10_energy) / self.density_reg * 1.e-5 # in km
         #self.shower_pos = self.Moon_radius_km * self.r_M - self.shower_lam * self.r_CR
 
+        self.propagate_particle()
+
         self.propagate_radio()
         #for k in range(0,self.num_events):
         self.R_SC = np.array([0., 0., self.Moon_radius_km + self.altitude])
@@ -139,27 +140,57 @@ class Geometry:
         self.R_Tx = np.zeros((3,self.num_events))
 
         self.snell_residual = []
+        '''
         for k in range(0,self.num_events):
-            #print 'e1[:,k], e2[:,k]', e1[:], e2[:,k]
-            def snell(x):
-                #print 'x', x
-                '''
-                if x < np.dot(self.R_SC, self.shower_pos[:,k])/np.sqrt(np.dot(self.R_SC,self.R_SC)):
-                    return np.inf
-                if x> self.Moon_radius_km:
-                    return np.inf
-                if self.Moon_radius_km**2 - x**2<0:
-                    return np.inf
-                #R_Tx = x*e1 + np.sqrt(self.Moon_radius_km**2 - x**2)*e2[:,k]
-                '''
+            # we define the light travel time. The minimum path is correct.
+            def ct(x):
+                #1. Rotate shower position so that y-component is 0.
+                phi = np.arctan(self.shower_pos[1,k]/self.shower_pos[0,k])
+                r_1 = np.array(
+                       [+np.cos(phi)*self.shower_pos[0,k]+np.sin(phi)*self.shower_pos[1,k],
+                       -np.sin(phi)*self.shower_pos[0,k]+np.cos(phi)*self.shower_pos[1,k],
+                       self.shower_pos[2,k]]
+                       )
+                r_3 = self.R_SC.copy()
+                r_2 = [x, 0.,  np.sqrt(self.Moon_radius_km**2-x**2)]
+                r_12 = np.sqrt(np.dot(r_2-r_1,  r_2-r_1))
+                r_23 = np.sqrt(np.dot(r_2-r_3,  r_2-r_3))
+                return  r_12 + self.n_reg*r_23
+            res = minimize(ct, x0=[0.])
+            self.R_Tx[:,k] = np.sqrt(self.Moon_radius_km **2-res.x**2) * e1 + res.x * e2[:,k]
+        '''
+        #'''
+        for k in range(0,self.num_events):
+            # we define the light travel time. The minimum path is correct.
+            def ct(x):
                 R_Tx = np.sqrt(self.Moon_radius_km**2 - x**2) * e1 + x * e2[:,k]
-                #if R_Tx[0]>self.shower_pos[0,k]: 
-                #    return np.inf
-                '''You coul do this with a dot product to calculate the cosine
-                and then do sin = sqrt(1-cos^2). It might help with precision
-                near the horizon.'''
-                
-                #'''
+                r_TX_SC = np.sqrt(np.dot(self.R_SC-R_Tx,  self.R_SC-R_Tx))
+                r_TX_sh = np.sqrt(np.dot(self.shower_pos[:,k]-R_Tx, self.shower_pos[:,k]-R_Tx))
+                return  r_TX_SC + self.n_reg*r_TX_sh
+            res = minimize_scalar(ct, tol=1.e-12)
+            self.R_Tx[:,k] = np.sqrt(self.Moon_radius_km **2-res.x**2) * e1 + res.x * e2[:,k]
+            
+            R_Tx = self.R_Tx[:,k]
+            c1 = np.cross(R_Tx, self.R_SC-R_Tx) 
+            c2 = np.cross(R_Tx, self.shower_pos[:,k]-R_Tx)
+            d1 = R_Tx - self.R_SC
+            d2 = R_Tx - self.shower_pos[:,k]
+            mc1 = np.sqrt(np.dot(c1, c1))
+            mc2 = np.sqrt(np.dot(c2, c2))
+            md1 = np.sqrt(np.dot(d1, d1))
+            md2 = np.sqrt(np.dot(d2, d2))
+            #val = mc1/md1 - self.n_reg * mc2/md2
+            #print x, mc2, md1, mc1/md1 * md2/mc2, self.n_reg 
+            val = mc1/md1 * md2/mc2 - self.n_reg 
+
+            self.snell_residual.append(val)
+
+            #print 'a: ', res.x
+        #'''
+        '''
+        for k in range(0,self.num_events):
+            def snell(x):
+                R_Tx = np.sqrt(self.Moon_radius_km**2 - x**2) * e1 + x * e2[:,k]
                 c1 = np.cross(R_Tx, self.R_SC-R_Tx) 
                 c2 = np.cross(R_Tx, self.shower_pos[:,k]-R_Tx)
                 d1 = R_Tx - self.R_SC
@@ -171,42 +202,28 @@ class Geometry:
                 #val = mc1/md1 - self.n_reg * mc2/md2
                 #print x, mc2, md1, mc1/md1 * md2/mc2, self.n_reg 
                 val = mc1/md1 * md2/mc2 - self.n_reg 
-                #'''
-                
-                '''
-                d1 = np.dot(R_Tx, self.R_SC-R_Tx)
-                d2 = np.dot(R_Tx, self.shower_pos[:,k]-R_Tx)
-                c1sq = d1**2/(np.dot(R_Tx, R_Tx)*np.dot(self.R_SC-R_Tx,self.R_SC-R_Tx))
-                c2sq = d2**2/(np.dot(R_Tx, R_Tx)*np.dot(self.shower_pos[:,k]-R_Tx, self.shower_pos[:,k]-R_Tx))
-                val =  1. - np.sqrt((1.-c1sq)/(self.n_reg**2*(1.-c2sq)))
-                '''
                 return np.abs(val)
-                #print 'in Snell:' 
-                #print '\t x %1.2e'%(x)
-                #print '\t R_Tx %1.2e %1.2e %1.2e'%(R_Tx[0], R_Tx[1], R_Tx[2])
-                #print '\t mc1/md1, mc2/md2', mc1/md1/self.Moon_radius_km, mc2/md2/self.Moon_radius_km
-                #print '\t val %1.2e'%(val)
-                #return np.abs(val)
             
             x0 = self.shower_pos[0,k]-1.
             x1 = self.shower_pos[0,k]
             #res = minimize_scalar(snell, bounds=(x0, x1), method='bounded')
             #print 'res.x', res.x
-            ''' This is probably overkil precision ''' 
             #res = minimize(snell, res.x, tol=1.e-6)
             #print 'self.shower_pos[0,k]-5.e-3', self.shower_pos[0,k]-5.e-3
             res = minimize(snell, [self.shower_pos[0,k]-5.e-3], method='TNC', bounds = [(x0,x1)], tol=1.e-6)
-           # while res.fun>1.e-1:
-           #     x_guess = np.random.uniform(x0,x1)
-           #     res = minimize(snell, [x_guess], method='TNC', bounds = [(x0,x1)], tol=1.e-6)
+            # while res.fun>1.e-1:
+            #     x_guess = np.random.uniform(x0,x1)
+            #     res = minimize(snell, [x_guess], method='TNC', bounds = [(x0,x1)], tol=1.e-6)
                 
             #print '%1.2e'%res.fun, res.success
             self.snell_residual.append(res.fun)
-            #print 'res.x', res.x, res.success
+            print 'b:', res.x, res.success
             #self.R_Tx[:,k] = res.x*e1 + np.sqrt(self.Moon_radius_km **2-res.x**2)*e2[:,k]
             self.R_Tx[:,k] = np.sqrt(self.Moon_radius_km **2-res.x**2) * e1 + res.x * e2[:,k]
 
+            #print 'b: res.x', res.x, res.success
         #dot = (self.r_CR[0,:]*(self.R_Tx - self.shower_pos)[0,:]) + (self.r_CR[1,:]*(self.R_Tx - self.shower_pos)[1,:]) + (self.r_CR[2,:]*(self.R_Tx - self.shower_pos)[2,:])
+        '''
         '''
         Cut events from the trigger if the snell residuals suck.
         This usually happens at nadir or by the horizon.
